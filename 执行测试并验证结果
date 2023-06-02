@@ -1,0 +1,58 @@
+好的，以下是使用PeekPokeTester的poke方法设置Stride Prefetcher的输入端口值的代码，以及连续和非连续访问测试的代码：
+
+```python
+import random
+from hwtypes import BitVector
+from peak import family_closure, Const, PEAK, name_outputs, Peak, family
+
+@family_closure
+def StridePrefetcher_fc(family):
+    Addr = family.BitVector[32]
+
+    @family.assemble(locals(), globals())
+    class StridePrefetcher(Peak):
+        def __init__(self):
+            self.history = [0, 0, 0, 0, 0]
+            self.stride = 0
+            self.predicted_addr = 0
+
+        def __call__(self, pc: Addr, mem_addr: Addr, mem_data: family.BitVector[8], mem_write: family.Bit):
+            if mem_write:
+                return
+
+            stride = mem_addr.as_uint() - self.history[-1]
+            self.history.pop(0)
+            self.history.append(mem_addr.as_uint())
+            if self.stride == stride:
+                self.predicted_addr = mem_addr.as_uint() + stride
+            else:
+                self.predicted_addr = 0
+            self.stride = stride
+
+        @name_outputs(predicted_addr=Addr)
+        def peek(self):
+            return self.predicted_addr
+
+        def poke(self, value: Addr):
+            self.predicted_addr = value.as_uint()
+
+    return StridePrefetcher
+
+StridePrefetcher = StridePrefetcher_fc()
+
+def test_prefetcher():
+    prefetcher = StridePrefetcher()
+
+    # Generate a random memory access trace
+    trace = [random.randint(0, 2**32-1) for _ in range(100)]
+
+    # Test with sequential memory accesses
+    for i in range(len(trace)):
+        prefetcher(Const(0), BitVector[32](trace[i]), Const(0), Const(0))
+        prefetcher.peek()
+        if i < len(trace) - 1:
+            assert prefetcher.peek() == trace[i+1]
+
+    # Test with non-sequential memory accesses
+    for i in range(len(trace)):
+        prefetcher(Const(0), BitVector[32](trace[i]), Const(
