@@ -1,0 +1,39 @@
+import chisel3._
+import chisel3.util._
+
+class StridePrefetcher(val tableSize: Int, val maxStride: Int) extends Module {
+  val io = IO(new Bundle {
+    val pc = Input(UInt(32.W))
+    val address = Input(UInt(32.W))
+    val prefetch_address = Output(UInt(32.W))
+    val prefetch_valid = Output(Bool())
+  })
+
+  class TableEntry extends Bundle {
+    val pc = UInt(32.W)
+    val prev_address = UInt(32.W)
+    val prev_stride = SInt(log2Ceil(maxStride).W)
+  }
+
+  val table = Mem(tableSize, new TableEntry)
+
+  val index = io.pc % tableSize.U
+
+  val entry = table.read(index)
+
+  val stride = io.address.asSInt - entry.prev_address.asSInt
+
+  val newEntry = Wire(new TableEntry)
+  newEntry.pc := io.pc
+  newEntry.prev_address := io.address
+  newEntry.prev_stride := stride
+
+  when(entry.pc === io.pc) {
+    io.prefetch_address := io.address + (entry.prev_stride * maxStride).asUInt
+    io.prefetch_valid := true.B
+  } .otherwise {
+    io.prefetch_address := 0.U
+    io.prefetch_valid := false.B
+    table.write(index, newEntry)
+  }
+}
