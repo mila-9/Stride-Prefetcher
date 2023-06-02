@@ -1,0 +1,38 @@
+import chisel3.iotesters._
+import chisel3.util._
+import scala.collection.mutable.ArrayBuffer
+
+class StridePrefetcherTester(dut: StridePrefetcher) extends PeekPokeTester(dut) {
+  val contiguousTrace = ArrayBuffer[BigInt]()
+  for (i <- 0 until 100) {
+    contiguousTrace += i * 4
+  }
+  val nonContiguousTrace = ArrayBuffer[BigInt]()
+  for (i <- 0 until 100) {
+    nonContiguousTrace += i * 8
+  }
+  for (i <- 0 until contiguousTrace.size) {
+    poke(dut.io.pc, i)
+    poke(dut.io.address, contiguousTrace(i))
+    step(1)
+    expect(dut.io.prefetch_address, (contiguousTrace(i) + dut.maxStride * 4).U)
+    expect(dut.io.prefetch_valid, true.B)
+  }
+  for (i <- 0 until nonContiguousTrace.size) {
+    poke(dut.io.pc, i)
+    poke(dut.io.address, nonContiguousTrace(i))
+    step(1)
+    if (i % 8 == 0) {
+      expect(dut.io.prefetch_address, (nonContiguousTrace(i) + dut.maxStride * 8).U)
+      expect(dut.io.prefetch_valid, true.B)
+    } else {
+      expect(dut.io.prefetch_valid, false.B)
+    }
+  }
+}
+
+object StridePrefetcherTester extends App {
+  iotesters.Driver.execute(Array("--backend-name", "verilator"), () => new StridePrefetcher(16, 4)) {
+    dut => new StridePrefetcherTester(dut)
+  }
+}
